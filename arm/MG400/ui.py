@@ -484,3 +484,4 @@ class RobotUI(object):
         self.label_feed_dict[label[1][1]]["text"] = array_value[0][1]
         self.label_feed_dict[label[1][2]]["text"] = array_value[0][2]
         self.label_feed_dict[label[1][3]]["text"] = array_value[0][3]
+

@@ -114,7 +114,7 @@ class DobotApi:
 
         if self.port == 29999 or self.port == 30003 or self.port == 30004:
             try:
-                self.socket_dobot = socket.socket()
+                self.socket_dobot = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.socket_dobot.connect((self.ip, self.port))
             except socket.error:
                 print(socket.error)

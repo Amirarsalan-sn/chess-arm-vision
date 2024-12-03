@@ -20,9 +20,16 @@ def connect_robot():
 
 if __name__ == "__main__":
     dashboard, move, feed = connect_robot()
+    dashboard.EnableRobot()  # No parameters
+    input('proceed ? :')
+    print(move.MovL(234, -1, 0.58, -81))
+    print(move.MovL(305, 121, 0.58, -81))
+    print(move.MovL(294, -153, 0.58, -81))
+    print(move.MovL(407, -11, 0.58, -81))
+    print(move.MovL(234, -1, 0.58, -81))
 
-    print(move.MovL(100, 100, 100, 90))
-    print(move.MovL(-100, 100, 100, 90))
-    print(move.MovL(-100, -100, 100, 90))
-    print(move.MovL(100, -100, 100, 90))
-    print(move.MovL(100, 100, 100, 90))
+    input('proceed? :')
+    dashboard.DisableRobot()  # 无参数
+    dashboard.socket_dobot.close()
+    move.socket_dobot.close()
+    feed.socket_dobot.close()
