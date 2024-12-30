@@ -1,4 +1,5 @@
 from arm.MG400.dobot_api import DobotApiDashboard, DobotApiMove, DobotApi
+import time
 
 
 def connect_robot():
@@ -18,18 +19,60 @@ def connect_robot():
         raise e
 
 
+def reset_pos():
+    print(move.MovL(234, -1, 0.58, 34.6))
+
+
+def down():
+    print(move.MovL(234, -1, -112, 34.6))
+
+
+time_to_wait = 200
+
 if __name__ == "__main__":
     dashboard, move, feed = connect_robot()
     dashboard.EnableRobot()  # No parameters
+    reset_pos()
     input('proceed ? :')
-    print(move.MovL(234, -1, 0.58, -81))
-    print(move.MovL(305, 121, 0.58, -81))
-    print(move.MovL(294, -153, 0.58, -81))
-    print(move.MovL(407, -11, 0.58, -81))
-    print(move.MovL(234, -1, 0.58, -81))
+    dashboard.SetPayload(0.5)
+    print(move.MovL(280.5, 105.8, -99.1, 34.6))
+    #input('proceed ? :')
+    dashboard.wait(time_to_wait)
+    dashboard.DO(1, 1)
+    # input('proceed ? :')
+    dashboard.wait(time_to_wait)
+    # input('proceed ? :')
+    print(move.MovL(244.5, 0.48, 6.1, 34.6))
+    print(move.MovL(286.3, -89.1, -102.3, 34.6))
+    # input('proceed ? :')
+    dashboard.wait(time_to_wait)
+    dashboard.DO(1, 0)
+    dashboard.wait(time_to_wait)
+    reset_pos()
+    dashboard.wait(2000)
+    print(move.MovL(286.3, -89.1, -102.3, 34.6))
+    # input('proceed ? :')
+    dashboard.wait(time_to_wait)
+    dashboard.DO(1, 1)
+    dashboard.wait(time_to_wait)
+    # input('proceed ? :')
+    print(move.MovL(244.5, 0.48, 6.1, 34.6))
+    print(move.MovL(280.5, 105.8, -99.1, 34.6))
+    # input('proceed ? :')
+    dashboard.wait(time_to_wait)
+    dashboard.DO(1, 0)
+    dashboard.wait(time_to_wait)
+    reset_pos()
+    # down()
+    input('proceed? :')
+    # dashboard.DOExecute(1, 1)
+
+    dashboard.SetPayload(0)
 
     input('proceed? :')
+    # dashboard.DOExecute(1, 0)
     dashboard.DisableRobot()  # 无参数
-    dashboard.socket_dobot.close()
-    move.socket_dobot.close()
-    feed.socket_dobot.close()
+
+    dashboard.close()
+    move.close()
+    feed.close()
