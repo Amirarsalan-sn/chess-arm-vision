@@ -1,36 +1,111 @@
-from arm.MG400.dobot_api import DobotApiDashboard, DobotApiMove, DobotApi
+from Brain import StockFishOpponent
+from vision.Eye import Eye
+from arm.Arm import Arm
+import bluetooth
 import time
 
 
-def connect_robot():
-    try:
-        ip = "192.168.1.6"
-        dashboard_p = 29999
-        move_p = 30003
-        feed_p = 30004
-        print("Establishing connection ...")
-        dashboard = DobotApiDashboard(ip, dashboard_p)
-        move = DobotApiMove(ip, move_p)
-        feed = DobotApi(ip, feed_p)
-        print(">.<Connection Successful>!<")
-        return dashboard, move, feed
-    except Exception as e:
-        print(":(Connection Failed:(")
-        raise e
+class Play:
+    def __init__(self, color=1):
+        self.color = color  # -1 for black
+        self.eye = Eye(color)
+        self.brain = StockFishOpponent("D:/stockfish/stockfish-windows-x86-64.exe")
+        self.arm = Arm(color)
+        self.find_bluetooth_devices()
+        self.connect_to_device()
 
+        self.map = [['a1', 'b1', 'c1', 'd1', 'e1', 'f1', 'g1', 'h1'],
+                    ['a2', 'b2', 'c2', 'd2', 'e2', 'f2', 'g2', 'h2'],
+                    ['a3', 'b3', 'c3', 'd3', 'e3', 'f3', 'g3', 'h3'],
+                    ['a4', 'b4', 'c4', 'd4', 'e4', 'f4', 'g4', 'h4'],
+                    ['a5', 'b5', 'c5', 'd5', 'e5', 'f5', 'g5', 'h5'],
+                    ['a6', 'b6', 'c6', 'd6', 'e6', 'f6', 'g6', 'h6'],
+                    ['a7', 'b7', 'c7', 'd7', 'e7', 'f7', 'g7', 'h7'],
+                    ['a8', 'b8', 'c8', 'd8', 'e8', 'f8', 'g8', 'h8']]
 
-def reset_pos():
-    print(move.MovL(234, -1, 0.58, 34.6))
+        self.board = [['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'],
+                      ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
+                      ['', '', '', '', '', '', '', ''],
+                      ['', '', '', '', '', '', '', ''],
+                      ['', '', '', '', '', '', '', ''],
+                      ['', '', '', '', '', '', '', ''],
+                      ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
+                      ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r']]
 
+        self.word_to_pos = {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}
 
-def down():
-    print(move.MovL(234, -1, -112, 34.6))
+    @staticmethod
+    def find_bluetooth_devices():
+        nearby_devices = bluetooth.discover_devices(lookup_names=True)
 
+        print("Found {} devices.".format(len(nearby_devices)))
 
-time_to_wait = 200
+        for addr, name in nearby_devices:
+            print("  Address: {}, Name: {}".format(addr, name))
+
+    def connect_to_device(self):
+        # Create a Bluetooth socket
+        server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+
+        # Bind the socket to any port
+        port = bluetooth.PORT_ANY
+        server_sock.bind(("", port))
+
+        # Start listening on the socket
+        server_sock.listen(1)
+
+        # Get the port number
+        port = server_sock.getsockname()[1]
+
+        print(f"Listening on port {port}")
+
+        # Advertise the service
+        bluetooth.advertise_service(server_sock, "BluetoothServer",
+                                    service_classes=[bluetooth.SERIAL_PORT_CLASS],
+                                    profiles=[bluetooth.SERIAL_PORT_PROFILE])
+
+        # Accept a connection
+        self.client_sock, client_info = server_sock.accept()
+        print(f"Accepted connection from {client_info}")
+
+    def receive_order(self):
+        try:
+            while True:
+                # Receive data from the client
+                data = self.client_sock.recv(1024)
+                if data:
+                    break
+                print(f"Received: {data}")
+
+                # Parse the received data (example: convert to string)
+                parsed_data = data.decode('utf-8')
+                print(f"Parsed data: {parsed_data}")
+        except OSError as e:
+            print(f"AN ERROR OCCURRED RECEIVING THE ORDERS: {e}")
+
+    def main_flow(self):
+        if self.color == 1:
+            self.receive_order()
+            player_action = self.brain.step('white begins')
+            self.arm.move(player_action, False)
+
+        while True:
+            self.receive_order()
+            new_board = self.eye.look()
+            opponent_action, capture = self.differentiate(new_board)
+            player_action = self.brain.step(opponent_action)
+            self.arm.move(player_action, capture)
+
+    def differentiate(self, new_board) -> str:
+        pass
+
+    def end(self):
+        self.arm.close_connection()
+        self.client_sock.close()
+
 
 if __name__ == "__main__":
-    dashboard, move, feed = connect_robot()
+    """dashboard, move, feed = connect_robot()
     dashboard.EnableRobot()  # No parameters
     reset_pos()
     input('proceed ? :')
@@ -75,4 +150,7 @@ if __name__ == "__main__":
 
     dashboard.close()
     move.close()
-    feed.close()
+    feed.close()"""
+
+    player = Play()
+    player.main_flow()
