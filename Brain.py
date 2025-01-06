@@ -14,6 +14,14 @@ class Opponent:
         """
         pass
 
+    def is_legal(self, action: str) -> bool:
+        """
+        Checks whether the action is valid or not.
+        :param action:
+        :return:
+        """
+        pass
+
 
 class StockFishOpponent(Opponent):
     # TODO: complete implementation
@@ -21,14 +29,38 @@ class StockFishOpponent(Opponent):
         super().__init__()
         self.engine = Stockfish(path=path_to_engine)
         self.engine.set_fen_position(chess.Board().fen())
+        self.board = chess.Board()
 
-    def step(self, action: str) -> str:
+    def step(self, action: str) -> tuple[str, int] or tuple[None, int]:
         assert action is not None, 'Invalid action passed'
 
         if action != 'white begins':
             self.engine.make_moves_from_current_position([action])
+            board_move = chess.Move.from_uci(action)
+            self.board.push(board_move)
+
+        if self.board.outcome() is not None:
+            if self.board.outcome().result() == '1-0':
+                return None, 1
+            elif self.board.outcome().result() == '0-1':
+                return None, -1
+            else:
+                return None, 0
 
         move = self.engine.get_best_move()
+        board_move = chess.Move.from_uci(move)
+        self.board.push(board_move)
         self.engine.make_moves_from_current_position([move])
 
-        return move
+        if self.board.outcome() is not None:
+            if self.board.outcome().result() == '1-0':
+                return move, 1
+            elif self.board.outcome().result() == '0-1':
+                return move, -1
+            else:
+                return move, 0
+
+        return move, 2
+
+    def is_legal(self, action: str) -> bool:
+        return self.engine.is_move_correct(action)

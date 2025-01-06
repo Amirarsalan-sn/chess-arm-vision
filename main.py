@@ -1,3 +1,5 @@
+import math
+
 from Brain import StockFishOpponent
 from vision.Eye import Eye
 from arm.Arm import Arm
@@ -8,6 +10,8 @@ import time
 class Play:
     def __init__(self, color=1):
         self.color = color  # -1 for black
+        assert self.color == 1 or self.color == -1, "player color can either be 1 or -1"
+
         self.eye = Eye(color)
         self.brain = StockFishOpponent("D:/stockfish/stockfish-windows-x86-64.exe")
         self.arm = Arm(color)
@@ -92,12 +96,145 @@ class Play:
         while True:
             self.receive_order()
             new_board = self.eye.look()
-            opponent_action, capture = self.differentiate(new_board)
-            player_action = self.brain.step(opponent_action)
+            try:
+                opponent_action = self.differentiate(new_board)
+            except Exception as e:
+                print(f'An exception occurred, either the opponent has made a mistake or it is due to in accuracy of '
+                      f'system. Please rearrange the pieces and start again:\n{e}')
+                continue
+            player_action, finish_stat = self.brain.step(opponent_action)
+            if player_action is None:  # the game finished.
+                print(
+                    f"Game finished with outcome: "
+                    f"{'White won' if finish_stat == 1 else 'Black won' if finish_stat == -1 else 'Draw'}")
+                break
+            capture = self.is_capture(player_action)
+            self.apply_player_action(player_action)
             self.arm.move(player_action, capture)
+            if finish_stat != 2:  # the game finished.
+                print(
+                    f"Game finished with outcome: "
+                    f"{'White won' if finish_stat == 1 else 'Black won' if finish_stat == -1 else 'Draw'}")
+                break
+
+        self.end()
 
     def differentiate(self, new_board) -> str:
-        pass
+        result = None
+        moved_piece_before = {}
+        moved_piece_after = {}
+
+        for i in range(8):
+            for j in range(8):
+                if new_board[i][j] == self.board[i][j]:
+                    continue
+
+                if (self.color == 1 and self.board[i][j].islower()) and (
+                        self.color == -1 and self.board[i][j].isupper()) and (new_board[i][j] == ''):
+                    moved_piece_before[self.board[i][j].lower()] = [i, j]
+                elif (self.color == 1 and new_board[i][j].islower()) and (
+                        self.color == -1 and new_board[i][j].isupper()):
+                    moved_piece_after[new_board[i][j].lower()] = [i, j]
+
+        if len(moved_piece_before) == len(moved_piece_after) == 2:  # castling might have happened.
+            if ('k' in moved_piece_before) and ('n' in moved_piece_before) and ('k' in moved_piece_after) and \
+                    ('n' in moved_piece_after):
+                if (self.color == 1 and moved_piece_before['k'][1] == moved_piece_after['k'][1] == 7) or (
+                        self.color == -1 and moved_piece_before['k'][1] == moved_piece_after['k'][1] == 0):
+                    result = self.map[moved_piece_before['k'][0]][moved_piece_before['k'][1]] \
+                             + self.map[moved_piece_after['k'][0]][moved_piece_after['k'][1]]
+        elif len(moved_piece_before) == len(moved_piece_after) == 1:  # it is a simple move or a promotion.
+            if moved_piece_before.keys() == moved_piece_after.keys():  # it is a simple move.
+                for key in moved_piece_before.keys():
+                    result = self.map[moved_piece_before[key][0]][moved_piece_before[key][1]] \
+                             + self.map[moved_piece_after[key][0]][moved_piece_after[key][1]]
+            elif ('p' in moved_piece_before.keys()) and ('k' not in moved_piece_after.keys()):  # it is a promotion
+                for key in moved_piece_after.keys():
+                    if (self.color == 1 and moved_piece_after[key][1] == 0) or (
+                            self.color == -1 and moved_piece_after[key][1] == 7):
+                        result = self.map[moved_piece_before['p'][0]][moved_piece_before['p'][1]] \
+                                 + self.map[moved_piece_after[key][0]][moved_piece_after[key][1]] + key
+
+        else:  # None of the cases above were satisfied, the action or the received perception is illegal.
+            legal_actions = []
+            for start_val in moved_piece_before.values():
+                for end_val in moved_piece_after.values():
+                    action = self.map[start_val[0]][start_val[1]] + self.map[end_val[0]][end_val[1]]
+                    if self.brain.is_legal(action):
+                        legal_actions.append(action)
+
+            if len(legal_actions) == 1:
+                result = legal_actions[0]
+            else:
+                raise Exception(f'None of the cases above were satisfied, the action or the received perception is '
+                                f'illegal:\nbefore: {self.board}\nafter: {new_board}')
+
+        if not self.brain.is_legal(result):
+            raise Exception(f"An illegal action extracted, it is either due to the opponent's action or inaccuracy of "
+                            f"the system's vision:\nbefore: {self.board}\nafter: {new_board}")
+
+        self.apply_player_action(result, opponent=True)
+
+        print(f'predicted action: {result}')
+        return result
+
+    def apply_player_action(self, player_action: str, opponent=False):
+        action_start = player_action[0:2]
+        action_end = player_action[2:4]
+        promotion = None
+
+        if len(player_action) > 4:
+            promotion = player_action[-1]
+
+        start_pose = [int(action_start[1]) - 1, self.word_to_pos[action_start[0]]]
+        end_pose = [int(action_end[1]) - 1, self.word_to_pos[action_end[0]]]
+
+        piece_to_move = self.map[start_pose[0]][start_pose[1]]
+
+        if piece_to_move.lower() == 'k' and (math.fabs(start_pose[1] - end_pose[1]) == 2):  # castling occurred.
+            second_start_pose = None
+            second_end_pose = None
+
+            if start_pose[1] < end_pose[1]:  # king side castling.
+                second_start_pose = [start_pose[0], 7]
+                second_end_pose = [start_pose[0], 5]
+            elif start_pose[1] > end_pose[1]:  # queen side castling.
+                second_start_pose = [start_pose[0], 0]
+                second_end_pose = [start_pose[0], 3]
+
+            self.move(second_start_pose, second_end_pose)
+
+        self.move(start_pose, end_pose)
+
+        if promotion is not None:
+            if opponent:
+                if self.color == 1:
+                    self.map[end_pose[0]][end_pose[1]] = promotion.lower()
+                elif self.color == -1:
+                    self.map[end_pose[0]][end_pose[1]] = promotion.upper()
+            else:
+                if self.color == 1:
+                    self.map[end_pose[0]][end_pose[1]] = promotion.upper()
+                elif self.color == -1:
+                    self.map[end_pose[0]][end_pose[1]] = promotion.lower()
+
+    def is_capture(self, player_action) -> bool:
+        action_end = player_action[2:4]
+
+        end_piece = self.map[action_end[0]][action_end[1]]
+
+        if end_piece == '':
+            return False
+
+        elif (self.color == 1 and end_piece.isupper()) and (self.color == -1 and end_piece.islower()):
+            raise Exception('Player is Capturing itself !!!')
+
+        return True
+
+    def move(self, start_pose, end_pose):
+        piece_to_move = self.map[start_pose[0]][start_pose[1]]
+        self.map[start_pose[0]][start_pose[1]] = ''
+        self.map[end_pose[0]][end_pose[1]] = piece_to_move
 
     def end(self):
         self.arm.close_connection()
