@@ -1,4 +1,5 @@
 from MG400.dobot_api import DobotApiDashboard, DobotApiMove, DobotApi
+import re
 
 
 class Arm:
@@ -58,7 +59,7 @@ class Arm:
         self.time_to_wait = 200
 
     # TODO: to be implemented
-    def move(self, action: str, capture: bool):
+    def move(self, action: str, capture: bool, castling: bool):
         """
         This method takes a chess action (in uci format) and performs it using the robotic arm.
         Note that there are multiple types of actions and each needs different sequences of actions to be performed by
@@ -68,20 +69,61 @@ class Arm:
         Promotion,
         Promotion with capture,
         Castling
+        :param castling: a boolean indicating whether to perform castling action or not.
         :param capture: a boolean indicating whether to perform capture action or not.
         :param action: chess action (in uci format)
         :return: nothing
         """
-        pass
+
+        if castling:
+            self.castling(action)
+        elif len(action) > 4:
+            self.promotion(action, capture)
+        else:
+            self.simple_move(action, capture)
 
     def simple_move(self, action: str, capture: bool):
-        pass
+        end_pos, start_pos = self.extract_pos(action)
+        if capture:
+            self.act(end_pos, self.void_pos)
+
+        self.act(start_pos, end_pos)
+        self.reset_pos()
 
     def promotion(self, action: str, capture: bool):
-        pass
+        end_pos, start_pos = self.extract_pos(action)
+        if capture:
+            self.act(end_pos, self.void_pos)
+
+        self.act(start_pos, self.void_pos)
+        self.act(self.promotion_poses[action[-1]], end_pos)
+        self.reset_pos()
+
+    def extract_pos(self, action):
+        start_action = action[0:2]
+        end_action = action[2:4]
+        start_pos = [int(start_action[1]) - 1 if self.color == 1 else -1 * int(start_action[1]),
+                     self.word_to_pos[start_action[0]] if self.color == 1 else -1 * self.word_to_pos[start_action[0]]-1]
+        end_pos = [int(end_action[1]) - 1 if self.color == 1 else int(end_action[1]) - 8,
+                   self.word_to_pos[end_action[0]] if self.color == 1 else -1 * self.word_to_pos[end_action[0]] - 1]
+        return end_pos, start_pos
 
     def castling(self, action: str):
-        pass
+        start_pos, end_pos = self.extract_pos(action)
+
+        self.act(start_pos, end_pos)
+
+        if int(action[1]) < int(action[3]):  # king side castling.
+            second_start_action = f'{action[0]}7'
+            second_end_action = f'{action[2]}5'
+        elif int(action[1]) > int(action[3]):  # queen side castling.
+            second_start_action = f'{action[0]}0'
+            second_end_action = f'{action[2]}3'
+
+        second_action = second_start_action + second_end_action
+        second_start_pos, second_end_pos = self.extract_pos(second_action)
+        self.act(second_start_pos, second_end_pos)
+        self.reset_pos()
 
     def act(self, start_pos, end_pos):
         """
@@ -90,13 +132,14 @@ class Arm:
         :param end_pos: ending position
         :return: nothing
         """
-        delta = 20
+        delta = 3.5
         start_pos_delta = [start_pos[0], start_pos[1], start_pos[2] + delta, start_pos[3]]
         end_pos_delta = [end_pos[0], end_pos[1], end_pos[2] + delta, end_pos[3]]
 
         self.dashboard.EnableRobot()  # No parameters
         self.reset_pos()
         self.dashboard.SetPayload(0.5)
+        self.move.MovL(*start_pos_delta)
         self.move.MovL(*start_pos)
         # input('proceed ? :')
         self.dashboard.wait(self.time_to_wait)
@@ -111,7 +154,7 @@ class Arm:
         self.dashboard.wait(self.time_to_wait)
         self.dashboard.DO(1, 0)
         self.dashboard.wait(self.time_to_wait)
-        self.reset_pos()
+        self.move.MovL(*end_pos_delta)
 
         self.dashboard.SetPayload(0)
 
@@ -123,6 +166,18 @@ class Arm:
         :return: nothing
         """
         pass
+
+    def memories(self):
+        poses = [[[] for j in range(8)] for i in range(8)]
+        for i in range(8):
+            for j in range(8):
+                input("proceed? ")
+                pos = self.dashboard.GetPose()
+                pos = re.findall("[-+]?\d*\.\d+,\s*[-+]?\d*\.\d+,\s*[-+]?\d*\.\d+,\s*[-+]?\d*\.\d+", pos)[0]
+                pos = pos.split(',')
+                poses[i][j] = [float(pos[0]), float(pos[1]), float(pos[2])]
+
+        print(f'Memorised positions:\n{poses}')
 
     def close_connection(self):
         self.dashboard.close()

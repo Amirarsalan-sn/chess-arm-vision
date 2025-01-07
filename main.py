@@ -109,8 +109,8 @@ class Play:
                     f"{'White won' if finish_stat == 1 else 'Black won' if finish_stat == -1 else 'Draw'}")
                 break
             capture = self.is_capture(player_action)
-            self.apply_player_action(player_action)
-            self.arm.move(player_action, capture)
+            castling = self.apply_player_action(player_action)
+            self.arm.move(player_action, capture, castling)
             if finish_stat != 2:  # the game finished.
                 print(
                     f"Game finished with outcome: "
@@ -182,6 +182,7 @@ class Play:
         action_start = player_action[0:2]
         action_end = player_action[2:4]
         promotion = None
+        castling = False
 
         if len(player_action) > 4:
             promotion = player_action[-1]
@@ -203,6 +204,7 @@ class Play:
                 second_end_pose = [start_pose[0], 3]
 
             self.move(second_start_pose, second_end_pose)
+            castling = True
 
         self.move(start_pose, end_pose)
 
@@ -217,6 +219,8 @@ class Play:
                     self.map[end_pose[0]][end_pose[1]] = promotion.upper()
                 elif self.color == -1:
                     self.map[end_pose[0]][end_pose[1]] = promotion.lower()
+
+        return castling
 
     def is_capture(self, player_action) -> bool:
         action_end = player_action[2:4]
