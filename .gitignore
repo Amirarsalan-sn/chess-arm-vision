@@ -17,3 +17,4 @@ vision/yolo11m.pt
 vision/yolo11m_best.pt
 vision/yolo11n.pt
 vision/yolo11n_best.pt
+/data_set/
