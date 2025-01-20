@@ -3,4 +3,4 @@ val: D:\chess_arm_vision\vision\val
 
 nc: 12
 
-names: [kw, kb, qw, qb, bw, bb, knw, knb, rw, rb, pw, pb]
+names: ['B', 'K', 'N', 'P', 'Q', 'R', 'b', 'k', 'n', 'p', 'q', 'r']

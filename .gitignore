@@ -7,6 +7,7 @@ vision/train/
 vision/val/
 vision/yolo_data/data/
 vision/yolo_data/test_aug/
+vision/yolo_data/hand_made/
 vision/clean_board.jpg
 vision/test.mp4
 vision/test_zoom_out.mp4
