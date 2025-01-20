@@ -216,13 +216,13 @@ def move_random_files(src_images_dir, src_labels_dir, dest_images_dir, dest_labe
 
 
 if __name__ == '__main__':
-    folder_path = '../train/'
-    augment_images_in_folder(folder_path, 5)
+    """folder_path = '../train/'
+    augment_images_in_folder(folder_path, 5)"""
 
     # process_images('./hand_made/train/images/', './hand_made/train/labels/', './hand_made/')
-    # image_path = './hand_made/val/images/820_jpg.rf.5a679f3dfe2e8fd0cc295e3479d0844a_mirrored_left.jpg'  # Replace with your image path
-    # label_path = './hand_made/val/labels/820_jpg.rf.5a679f3dfe2e8fd0cc295e3479d0844a_mirrored_left.txt'  # Replace with your label path
-    # draw_bounding_boxes(image_path, label_path)
+    image_path = '../train/images/0_jpg.rf.00aa70acccbe6c2ea0a30a637e789d23_augmented_2.jpg'  # Replace with your image path
+    label_path = '../train/labels/0_jpg.rf.00aa70acccbe6c2ea0a30a637e789d23_augmented_2.txt'  # Replace with your label path
+    draw_bounding_boxes(image_path, label_path)
 
     """src_images_dir = './hand_made/train/images'
     src_labels_dir = './hand_made/train/labels'
