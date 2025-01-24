@@ -56,8 +56,8 @@ def find_contours():
         # Convert the image to HSV color space
 
         # Define the lower and upper bounds for red color in HSV
-        lower_red = np.array([20, 30, 150])
-        upper_red = np.array([50, 55, 210])
+        lower_red = np.array([20, 30, 120])
+        upper_red = np.array([70, 75, 210])
 
         # Create a mask for the red color
         mask = cv2.inRange(frame, lower_red, upper_red)
@@ -137,8 +137,8 @@ else:
         # cv2.imshow("captured", resized)
 
         # Define the range for bright red color in HSV
-        lower_red = np.array([20, 30, 150])
-        upper_red = np.array([50, 55, 210])
+        lower_red = np.array([20, 30, 118])
+        upper_red = np.array([70, 75, 210])
 
         # Create a mask for the red color
         mask = cv2.inRange(img, lower_red, upper_red)
@@ -148,8 +148,8 @@ else:
 
         # Draw contours and print coordinates
         perspect_list = []
-        sum_x = 0
-        sum_y = 0
+        x_list = []
+        y_list = []
         tl = bl = tr = br = None
         for contour in contours:
             # Get the coordinates of the bounding box
@@ -159,21 +159,29 @@ else:
                 # Draw a rectangle around the detected point
                 cv2.rectangle(img_2, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 perspect_list.append([x + (w // 2), y + (h // 2)])
-                sum_x += x + (w // 2)
-                sum_y += y + (h // 2)
+                x_list.append(x + (w // 2))
+                y_list.append(y + (h // 2))
 
-        sum_x /= 4
-        sum_y /= 4
-        print(f'sum x :{sum_x}, sum y: {sum_y}')
+        x_list.sort()
+        y_list.sort()
+
+        try:
+            median_x = (x_list[1] + x_list[2])/2
+            median_y = (y_list[1] + y_list[2])/2
+        except Exception as e:
+            print("fatal points")
+            continue
+
+        print(f'sum x :{median_x}, sum y: {median_y}')
         # tl = bl = tr = br = None
         for pos in perspect_list:
-            if pos[0] < sum_x and pos[1] < sum_y:
+            if pos[0] < median_x and pos[1] < median_y:
                 tl = pos
-            elif pos[0] < sum_x and pos[1] > sum_y:
+            elif pos[0] < median_x and pos[1] > median_y:
                 bl = pos
-            elif pos[0] > sum_x and pos[1] < sum_y:
+            elif pos[0] > median_x and pos[1] < median_y:
                 tr = pos
-            elif pos[0] > sum_x and pos[1] > sum_y:
+            elif pos[0] > median_x and pos[1] > median_y:
                 br = pos
 
         print(f'tl:{tl}, bl:{bl}, tr:{tr}, br:{br}')

@@ -1,10 +1,14 @@
-import math
-
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 from Brain import StockFishOpponent
+from ctypes import cast, POINTER
+from comtypes import CLSCTX_ALL
 from vision.Eye import Eye
 from arm.Arm import Arm
-import bluetooth
+import pyttsx3
 import time
+import math
+
+DEFAULT_VOLUME = 0.85
 
 
 class Play:
@@ -15,8 +19,10 @@ class Play:
         self.eye = Eye(color)
         self.brain = StockFishOpponent("D:/stockfish/stockfish-windows-x86-64.exe")
         self.arm = Arm(color)
-        self.find_bluetooth_devices()
-        self.connect_to_device()
+        self.set_volume()
+        self.speaker = pyttsx3.init()
+        self.speaker.setProperty('rate', 150)  # Speed of speech
+        self.speaker.setProperty('volume', 1)
 
         self.map = [['a1', 'b1', 'c1', 'd1', 'e1', 'f1', 'g1', 'h1'],
                     ['a2', 'b2', 'c2', 'd2', 'e2', 'f2', 'g2', 'h2'],
@@ -38,83 +44,77 @@ class Play:
 
         self.word_to_pos = {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}
 
-    @staticmethod
-    def find_bluetooth_devices():
-        nearby_devices = bluetooth.discover_devices(lookup_names=True)
+    def set_volume(self):
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(
+            IAudioEndpointVolume._iid_,
+            CLSCTX_ALL,
+            None)
+        volume_control = cast(interface, POINTER(IAudioEndpointVolume))
+        volume_control.SetMasterVolumeLevelScalar(DEFAULT_VOLUME, None)
+        print(f"Volume set to: {DEFAULT_VOLUME * 100:.0f}%")
 
-        print("Found {} devices.".format(len(nearby_devices)))
-
-        for addr, name in nearby_devices:
-            print("  Address: {}, Name: {}".format(addr, name))
-
-    def connect_to_device(self):
-        # Create a Bluetooth socket
-        server_sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-
-        # Bind the socket to any port
-        port = bluetooth.PORT_ANY
-        server_sock.bind(("", port))
-
-        # Start listening on the socket
-        server_sock.listen(1)
-
-        # Get the port number
-        port = server_sock.getsockname()[1]
-
-        print(f"Listening on port {port}")
-
-        # Advertise the service
-        bluetooth.advertise_service(server_sock, "BluetoothServer",
-                                    service_classes=[bluetooth.SERIAL_PORT_CLASS],
-                                    profiles=[bluetooth.SERIAL_PORT_PROFILE])
-
-        # Accept a connection
-        self.client_sock, client_info = server_sock.accept()
-        print(f"Accepted connection from {client_info}")
+    def get_volume(self):
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(
+            IAudioEndpointVolume._iid_,
+            CLSCTX_ALL,
+            None)
+        volume = cast(interface, POINTER(IAudioEndpointVolume))
+        return volume.GetMasterVolumeLevelScalar()
 
     def receive_order(self):
-        try:
-            while True:
-                # Receive data from the client
-                data = self.client_sock.recv(1024)
-                if data:
-                    break
-                print(f"Received: {data}")
+        while True:
+            time.sleep(3)  # Sleep for 3 second before checking the volume again
+            current_volume = self.get_volume()
 
-                # Parse the received data (example: convert to string)
-                parsed_data = data.decode('utf-8')
-                print(f"Parsed data: {parsed_data}")
-        except OSError as e:
-            print(f"AN ERROR OCCURRED RECEIVING THE ORDERS: {e}")
+            if current_volume != DEFAULT_VOLUME:
+                print(f"Volume changed to: {current_volume * 100:.0f}%")
+                self.set_volume()
+                break
 
     def main_flow(self):
         if self.color == 1:
             self.receive_order()
             player_action = self.brain.step('white begins')
-            self.arm.move(player_action, False)
+            self.arm.move_piece(player_action, False, False, False)
 
         while True:
             self.receive_order()
-            new_board = self.eye.look()
+            try:
+                new_board = self.eye.look()
+            except Exception as e:
+                print(f'Exception at eye: {e}\n')
+                flag = self.terminate_check()
+                if flag:
+                    break
+                continue
             try:
                 opponent_action = self.differentiate(new_board)
             except Exception as e:
                 print(f'An exception occurred, either the opponent has made a mistake or it is due to in accuracy of '
                       f'system. Please rearrange the pieces and start again:\n{e}')
+                flag = self.terminate_check()
+                if flag:
+                    break
                 continue
             player_action, finish_stat = self.brain.step(opponent_action)
             if player_action is None:  # the game finished.
-                print(
-                    f"Game finished with outcome: "
-                    f"{'White won' if finish_stat == 1 else 'Black won' if finish_stat == -1 else 'Draw'}")
+                game_result = f"Game finished with outcome: " + \
+                              f"{'White won' if finish_stat == 1 else 'Black won' if finish_stat == -1 else 'Draw'}"
+                print(game_result)
+                self.speaker.say(game_result)
+                self.speaker.runAndWait()
                 break
             capture = self.is_capture(player_action)
-            castling = self.apply_player_action(player_action)
-            self.arm.move(player_action, capture, castling)
+            castling, en_passant = self.apply_player_action(player_action)
+            self.arm.move_piece(player_action, capture, castling, en_passant)
             if finish_stat != 2:  # the game finished.
-                print(
-                    f"Game finished with outcome: "
-                    f"{'White won' if finish_stat == 1 else 'Black won' if finish_stat == -1 else 'Draw'}")
+                game_result = f"Game finished with outcome: " + \
+                              f"{'White won' if finish_stat == 1 else 'Black won' if finish_stat == -1 else 'Draw'}"
+                print(game_result)
+                self.speaker.say(game_result)
+                self.speaker.runAndWait()
                 break
 
         self.end()
@@ -129,18 +129,18 @@ class Play:
                 if new_board[i][j] == self.board[i][j]:
                     continue
 
-                if (self.color == 1 and self.board[i][j].islower()) and (
-                        self.color == -1 and self.board[i][j].isupper()) and (new_board[i][j] == ''):
+                if ((self.color == 1 and self.board[i][j].islower()) or (
+                        self.color == -1 and self.board[i][j].isupper())) and (new_board[i][j] == ''):
                     moved_piece_before[self.board[i][j].lower()] = [i, j]
-                elif (self.color == 1 and new_board[i][j].islower()) and (
-                        self.color == -1 and new_board[i][j].isupper()):
+                elif ((self.color == 1 and new_board[i][j].islower()) or (
+                        self.color == -1 and new_board[i][j].isupper())):
                     moved_piece_after[new_board[i][j].lower()] = [i, j]
 
         if len(moved_piece_before) == len(moved_piece_after) == 2:  # castling might have happened.
             if ('k' in moved_piece_before) and ('n' in moved_piece_before) and ('k' in moved_piece_after) and \
                     ('n' in moved_piece_after):
-                if (self.color == 1 and moved_piece_before['k'][1] == moved_piece_after['k'][1] == 7) or (
-                        self.color == -1 and moved_piece_before['k'][1] == moved_piece_after['k'][1] == 0):
+                if (self.color == 1 and moved_piece_before['k'][0] == moved_piece_after['k'][0] == 7) or (
+                        self.color == -1 and moved_piece_before['k'][0] == moved_piece_after['k'][0] == 0):
                     result = self.map[moved_piece_before['k'][0]][moved_piece_before['k'][1]] \
                              + self.map[moved_piece_after['k'][0]][moved_piece_after['k'][1]]
         elif len(moved_piece_before) == len(moved_piece_after) == 1:  # it is a simple move or a promotion.
@@ -150,12 +150,12 @@ class Play:
                              + self.map[moved_piece_after[key][0]][moved_piece_after[key][1]]
             elif ('p' in moved_piece_before.keys()) and ('k' not in moved_piece_after.keys()):  # it is a promotion
                 for key in moved_piece_after.keys():
-                    if (self.color == 1 and moved_piece_after[key][1] == 0) or (
-                            self.color == -1 and moved_piece_after[key][1] == 7):
+                    if (self.color == 1 and moved_piece_after[key][0] == 0) or (
+                            self.color == -1 and moved_piece_after[key][0] == 7):
                         result = self.map[moved_piece_before['p'][0]][moved_piece_before['p'][1]] \
                                  + self.map[moved_piece_after[key][0]][moved_piece_after[key][1]] + key
 
-        else:  # None of the cases above were satisfied, the action or the received perception is illegal.
+        elif result is None:  # None of the cases above were satisfied, the action or the received perception is illegal
             legal_actions = []
             for start_val in moved_piece_before.values():
                 for end_val in moved_piece_after.values():
@@ -178,6 +178,7 @@ class Play:
         print(f'predicted action: {result}')
         return result
 
+    # TODO:remember to implement en_passant detection.
     def apply_player_action(self, player_action: str, opponent=False):
         action_start = player_action[0:2]
         action_end = player_action[2:4]
@@ -190,7 +191,7 @@ class Play:
         start_pose = [int(action_start[1]) - 1, self.word_to_pos[action_start[0]]]
         end_pose = [int(action_end[1]) - 1, self.word_to_pos[action_end[0]]]
 
-        piece_to_move = self.map[start_pose[0]][start_pose[1]]
+        piece_to_move = self.board[start_pose[0]][start_pose[1]]
 
         if piece_to_move.lower() == 'k' and (math.fabs(start_pose[1] - end_pose[1]) == 2):  # castling occurred.
             second_start_pose = None
@@ -206,6 +207,8 @@ class Play:
             self.move(second_start_pose, second_end_pose)
             castling = True
 
+        en_passant = self.brain.is_en_passant(player_action)
+
         self.move(start_pose, end_pose)
 
         if promotion is not None:
@@ -220,7 +223,10 @@ class Play:
                 elif self.color == -1:
                     self.map[end_pose[0]][end_pose[1]] = promotion.lower()
 
-        return castling
+        if en_passant:
+            self.map[start_pose[0]][end_pose[1]] = ''
+
+        return castling, en_passant
 
     def is_capture(self, player_action) -> bool:
         action_end = player_action[2:4]
@@ -240,9 +246,19 @@ class Play:
         self.map[start_pose[0]][start_pose[1]] = ''
         self.map[end_pose[0]][end_pose[1]] = piece_to_move
 
+    def terminate_check(self):
+        while True:
+            comm = input('wanna terminate the program (Y/n) ? ')
+            if comm == 'Y' or comm == '':
+                print('termination confirmed.')
+                return True
+            elif comm == 'n':
+                print('program continues')
+                return False
+            print('invalid answer.')
+
     def end(self):
         self.arm.close_connection()
-        self.client_sock.close()
 
 
 if __name__ == "__main__":

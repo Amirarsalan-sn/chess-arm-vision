@@ -8,6 +8,8 @@ vision/val/
 vision/yolo_data/data/
 vision/yolo_data/test_aug/
 vision/yolo_data/hand_made/
+vision/points_data/
+vision/yolo_data/points_data/
 vision/clean_board.jpg
 vision/test.mp4
 vision/test_zoom_out.mp4

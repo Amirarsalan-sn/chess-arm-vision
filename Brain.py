@@ -22,6 +22,14 @@ class Opponent:
         """
         pass
 
+    def is_en_passant(self, action: str) -> bool:
+        """
+        Checks whether an action is en passant or not.
+        :param action:
+        :return:
+        """
+        pass
+
 
 class StockFishOpponent(Opponent):
     # TODO: complete implementation
@@ -63,4 +71,10 @@ class StockFishOpponent(Opponent):
         return move, 2
 
     def is_legal(self, action: str) -> bool:
-        return self.engine.is_move_correct(action)
+        return chess.Move.from_uci(action) in self.board.legal_moves
+
+    def is_en_passant(self, action: str) -> bool:
+        if self.is_legal(action):
+            return self.board.is_en_passant(chess.Move.from_uci(action))
+        else:
+            return False

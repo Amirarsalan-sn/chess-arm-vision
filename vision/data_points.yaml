@@ -1,0 +1,6 @@
+train: D:\chess_arm_vision\vision\points_data\train
+val: D:\chess_arm_vision\vision\points_data\valid
+
+
+nc: 1
+names: ['red']
