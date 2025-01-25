@@ -1,5 +1,6 @@
-from MG400.dobot_api import DobotApiDashboard, DobotApiMove, DobotApi
+from arm.MG400.dobot_api import DobotApiDashboard, DobotApiMove, DobotApi
 import re
+import matplotlib.pyplot as plt
 
 memor = [
     [[219.367455, 90.64524, -101.370293], [217.368459, 64.153626, -100.919762], [219.160661, 34.708657, -100.980217],
@@ -45,7 +46,10 @@ class Arm:
             raise e
 
         self.color = color
-        self.rotation = 20.15
+        self.dashboard.DisableRobot()
+        self.rotation = 1.09
+        self.reset = [287.87, -11.85, 117.06, self.rotation]
+        self.origin, self.vector_i, self.vector_j = self.learn_map()
         self.board_position_encoding = [
             [[None, None, None, self.rotation], [None, None, None, self.rotation], [None, None, None, self.rotation],
              [None, None, None, self.rotation], [None, None, None, self.rotation], [None, None, None, self.rotation],
@@ -71,28 +75,33 @@ class Arm:
             [[None, None, None, self.rotation], [None, None, None, self.rotation], [None, None, None, self.rotation],
              [None, None, None, self.rotation], [None, None, None, self.rotation], [None, None, None, self.rotation],
              [None, None, None, self.rotation], [None, None, None, self.rotation]], ]
-        self.reset = [287.87, -11.85, 117.06, self.rotation]
 
         for i in range(8):
             for j in range(8):
-                self.board_position_encoding[i][j][0] = memor[i][j][0]
-                self.board_position_encoding[i][j][1] = memor[i][j][1]
-                self.board_position_encoding[i][j][2] = memor[i][j][2]
+                self.board_position_encoding[j][i][0] = self.origin[0] + i * self.vector_i[0] + j * self.vector_j[0]
+                self.board_position_encoding[j][i][1] = self.origin[1] + i * self.vector_i[1] + j * self.vector_j[1]
+                self.board_position_encoding[j][i][2] = self.origin[2]
+                self.board_position_encoding[j][i][3] = self.rotation
 
-        print('positions are all set')
+        print('positions are all set.')
 
-        self.void_pos = [316.96, -126.88, -102.07, self.rotation]  # used for captures and promotions
+        self.void_pos = self.learn_void_pos()
+        print('void position is set.')
         self.promotion_poses = {
-            'q': [358.95, 116.77, -99.66, self.rotation],
+            'q': [None, None, None, self.rotation],
             'b': [None, None, None, self.rotation],
             'r': [None, None, None, self.rotation],
-            'kn': [None, None, None, self.rotation]
+            'n': [None, None, None, self.rotation]
         }
+
+        self.learn_promotions(self.promotion_poses)
 
         self.word_to_pos = {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}
 
         self.time_to_wait = 200
-        self.dashboard.EnableRobot()  # this can be changed
+
+        self.dashboard.EnableRobot()
+        self.reset_pos()
 
     # TODO: to be implemented
     def move_piece(self, action: str, capture: bool, castling: bool, en_passant: bool):
@@ -105,6 +114,7 @@ class Arm:
         Promotion,
         Promotion with capture,
         Castling
+        :param en_passant: a boolean indicating whether to perform en passant action or not.
         :param castling: a boolean indicating whether to perform castling action or not.
         :param capture: a boolean indicating whether to perform capture action or not.
         :param action: chess action (in uci format)
@@ -214,20 +224,135 @@ class Arm:
         :return: nothing
         """
         self.move.MovL(*self.reset)
-        #self.dashboard.wait(self.time_to_wait * 10)
+        # self.dashboard.wait(self.time_to_wait * 10)
 
     def memories(self):
         poses = [[[] for j in range(8)] for i in range(8)]
         for i in range(8):
             for j in range(8):
                 input("proceed? ")
-                pos = self.dashboard.GetPose()
-                pos = re.findall("[-+]?\d*\.\d+,\s*[-+]?\d*\.\d+,\s*[-+]?\d*\.\d+,\s*[-+]?\d*\.\d+", pos)[0]
-                pos = pos.split(',')
+                pos = self.get_position()
                 poses[i][j] = [float(pos[0]), float(pos[1]), float(pos[2])]
                 print(f'pos {i}, {j}: {pos}')
 
         print(f'Memorised positions:\n{poses}')
+
+    def learn_map(self):
+        input("show the origin point in the board, then press enter.")
+        pos = self.get_position()
+        z = float(pos[2])
+        origin = [float(pos[0]), float(pos[1]), z]
+        input("show the bottom right point.")
+        pos = self.get_position()
+        br = [float(pos[0]), float(pos[1]), z]
+        input("show the top left point.")
+        pos = self.get_position()
+        tl = [float(pos[0]), float(pos[1]), z]
+
+        x0, y0 = origin[0], origin[1]
+        x1, y1 = br[0], br[1]
+        x2, y2 = tl[0], tl[1]
+
+        learning_rate = 1e-5
+
+        loss_history = []
+        for i in range(500):
+            z_o = x0 ** 2 + -(x1 + x2) * x0 + x1 * x2 + y0 ** 2 - (y1 + y2) * y0 + y1 * y2
+            loss_history.append(1 / 2 * (z_o ** 2))
+            dl_dz = z_o
+            dl_dx0 = dl_dz * (2 * x0 - (x1 + x2))  # dl_dx = dl_dz * dz_dx0
+            dl_dx1 = dl_dz * (x2 - x0)
+            dl_dx2 = dl_dz * (x1 - x0)
+            dl_dy0 = dl_dz * (2 * y0 - (y1 + y2))
+            dl_dy1 = dl_dz * (y2 - y0)
+            dl_dy2 = dl_dz * (y1 - y0)
+
+            dl_dx0 *= learning_rate
+            dl_dx1 *= learning_rate
+            dl_dx2 *= learning_rate
+            dl_dy0 *= learning_rate
+            dl_dy1 *= learning_rate
+            dl_dy2 *= learning_rate
+
+            x0 -= dl_dx0
+            x1 -= dl_dx1
+            x2 -= dl_dx2
+            y0 -= dl_dy0
+            y1 -= dl_dy1
+            y2 -= dl_dy2
+
+        plt.plot(loss_history)
+        plt.title('Map positions learning curve')
+        plt.xlabel('Epochs')
+        plt.ylabel('<a1 | a2>')
+        plt.show()
+        self.check_terminate()
+
+        vector_i = [(x1 - x0) / 7, (y1 - y0) / 7, z, self.rotation]
+        vector_j = [(x2 - x0) / 7, (y2 - y0) / 7, z, self.rotation]
+        origin = [x0, y0, z, self.rotation]
+
+        # now it's time to show the learned positions
+        self.dashboard.EnableRobot()  # this can be changed
+        self.reset_pos()
+        self.move.MovL(*origin)
+        self.dashboard.DO(1, 1)
+        self.dashboard.wait(1000)
+        self.dashboard.DO(1, 0)
+        self.check_terminate()
+        br_2 = [7 * vector_i[0] + origin[0], 7 * vector_i[1] + origin[1], z, self.rotation]
+        self.move.MovL(*br_2)
+        self.check_terminate()
+        tl_2 = [7 * vector_j[0] + origin[0], 7 * vector_j[1] + origin[1], z, self.rotation]
+        self.move.MovL(*tl_2)
+        self.check_terminate()
+        tr_2 = [7 * vector_i[0] + 7 * vector_j[0] + origin[0], 7 * vector_i[1] + 7 * vector_j[1] + origin[1], z,
+                self.rotation]
+        self.move.MovL(*tr_2)
+        self.check_terminate()
+        #self.reset_pos()
+        self.dashboard.DisableRobot()
+
+        return origin, vector_i, vector_j
+
+    def learn_promotions(self, promotions):
+        input('show the queen promotion position and then press enter.')
+        pos = self.get_position()
+        promotions['q'] = [float(pos[0]), float(pos[1]), float(pos[2]), self.rotation]
+
+        input('show the bishop promotion position and then press enter.')
+        pos = self.get_position()
+        promotions['b'] = [float(pos[0]), float(pos[1]), float(pos[2]), self.rotation]
+
+        input('show the rook promotion position and then press enter.')
+        pos = self.get_position()
+        promotions['r'] = [float(pos[0]), float(pos[1]), float(pos[2]), self.rotation]
+
+        input('show the knight promotion position and then press enter.')
+        pos = self.get_position()
+        promotions['n'] = [float(pos[0]), float(pos[1]), float(pos[2]), self.rotation]
+
+        print('promotion positions are all set.')
+
+    def learn_void_pos(self):
+        input('show the void position for capturing and then press enter.')
+        pos = self.get_position()
+        pos = [float(pos[0]), float(pos[1]), float(pos[2]), self.rotation]
+        return pos
+
+    def get_position(self):
+        pos = self.dashboard.GetPose()
+        pos = re.findall("[-+]?\d*\.\d+,\s*[-+]?\d*\.\d+,\s*[-+]?\d*\.\d+,\s*[-+]?\d*\.\d+", pos)[0]
+        pos = pos.split(',')
+        return pos
+
+    def check_terminate(self):
+        command = input('proceed (Y/n)? ')
+
+        if not (command == 'Y' or command == ''):
+            self.close_connection()
+            print('process terminates')
+            exit(0)
 
     def close_connection(self):
         self.dashboard.DisableRobot()
@@ -268,7 +393,8 @@ if __name__ == '__main__':
             continue
         cap = True if input('capture? ') == '1' else False
         cas = True if input('castling? ') == '1' else False
-        ar.move_piece(comm, cap, cas)
+        enp = True if input('en passant: ') == '1' else False
+        ar.move_piece(comm, cap, cas, enp)
 
     ar.close_connection()
     """dashboard.EnableRobot()

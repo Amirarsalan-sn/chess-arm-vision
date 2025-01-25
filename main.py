@@ -19,7 +19,7 @@ class Play:
         self.eye = Eye(color)
         self.brain = StockFishOpponent("D:/stockfish/stockfish-windows-x86-64.exe")
         self.arm = Arm(color)
-        self.set_volume()
+        #self.set_volume()
         self.speaker = pyttsx3.init()
         self.speaker.setProperty('rate', 150)  # Speed of speech
         self.speaker.setProperty('volume', 1)
@@ -64,20 +64,24 @@ class Play:
         return volume.GetMasterVolumeLevelScalar()
 
     def receive_order(self):
-        while True:
+        input('proceed?')
+        return
+        """while True:
             time.sleep(3)  # Sleep for 3 second before checking the volume again
             current_volume = self.get_volume()
 
-            if current_volume != DEFAULT_VOLUME:
+            if math.fabs(current_volume - DEFAULT_VOLUME) * 100 >= 1:
                 print(f"Volume changed to: {current_volume * 100:.0f}%")
                 self.set_volume()
-                break
+                break"""
 
     def main_flow(self):
         if self.color == 1:
             self.receive_order()
-            player_action = self.brain.step('white begins')
+            player_action, _ = self.brain.step('white begins')
+            self.apply_player_action(player_action)
             self.arm.move_piece(player_action, False, False, False)
+
 
         while True:
             self.receive_order()
@@ -115,6 +119,7 @@ class Play:
                 print(game_result)
                 self.speaker.say(game_result)
                 self.speaker.runAndWait()
+                time.sleep(3)
                 break
 
         self.end()
@@ -214,24 +219,24 @@ class Play:
         if promotion is not None:
             if opponent:
                 if self.color == 1:
-                    self.map[end_pose[0]][end_pose[1]] = promotion.lower()
+                    self.board[end_pose[0]][end_pose[1]] = promotion.lower()
                 elif self.color == -1:
-                    self.map[end_pose[0]][end_pose[1]] = promotion.upper()
+                    self.board[end_pose[0]][end_pose[1]] = promotion.upper()
             else:
                 if self.color == 1:
-                    self.map[end_pose[0]][end_pose[1]] = promotion.upper()
+                    self.board[end_pose[0]][end_pose[1]] = promotion.upper()
                 elif self.color == -1:
-                    self.map[end_pose[0]][end_pose[1]] = promotion.lower()
+                    self.board[end_pose[0]][end_pose[1]] = promotion.lower()
 
         if en_passant:
-            self.map[start_pose[0]][end_pose[1]] = ''
+            self.board[start_pose[0]][end_pose[1]] = ''
 
         return castling, en_passant
 
     def is_capture(self, player_action) -> bool:
         action_end = player_action[2:4]
-
-        end_piece = self.map[action_end[0]][action_end[1]]
+        end_pose = [int(action_end[1]) - 1, self.word_to_pos[action_end[0]]]
+        end_piece = self.board[end_pose[0]][end_pose[1]]
 
         if end_piece == '':
             return False
@@ -242,9 +247,9 @@ class Play:
         return True
 
     def move(self, start_pose, end_pose):
-        piece_to_move = self.map[start_pose[0]][start_pose[1]]
-        self.map[start_pose[0]][start_pose[1]] = ''
-        self.map[end_pose[0]][end_pose[1]] = piece_to_move
+        piece_to_move = self.board[start_pose[0]][start_pose[1]]
+        self.board[start_pose[0]][start_pose[1]] = ''
+        self.board[end_pose[0]][end_pose[1]] = piece_to_move
 
     def terminate_check(self):
         while True:
@@ -258,7 +263,9 @@ class Play:
             print('invalid answer.')
 
     def end(self):
+        self.eye.close()
         self.arm.close_connection()
+        pass
 
 
 if __name__ == "__main__":
@@ -309,5 +316,5 @@ if __name__ == "__main__":
     move.close()
     feed.close()"""
 
-    player = Play()
+    player = Play(color=-1)
     player.main_flow()
