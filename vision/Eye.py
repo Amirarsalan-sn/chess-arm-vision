@@ -47,9 +47,13 @@ class Eye:
         for i in range(results.cls.shape[0]):
             x = int(results.xywh[i][0] * scale_width)
             y = int(results.xywh[i][1] * scale_hight)
+            cv2.rectangle(image_resized, (int(results.xyxy[i][0]), int(results.xyxy[i][1])),
+                          (int(results.xyxy[i][2]), int(results.xyxy[i][3])), (0, 255, 0), 2)
             coordinates.append([x, y])
             x_list.append(x)
             y_list.append(y)
+
+        cv2.imshow('Detected points', cv2.resize(image_resized, (640, 640)))
 
         if len(coordinates) != 4:
             raise Exception("the yolo model couldn't find the four red corners.")
@@ -157,7 +161,6 @@ class Eye:
                 print('webcam recaptured')
                 continue
 
-
             tl, bl, tr, br = self.extract_points_with_yolo(img)
 
             pts1 = np.float32([tr, tl, br, bl])
@@ -175,13 +178,19 @@ class Eye:
 
             for i in range(result.cls.shape[0]):
                 piece = self.mask_to_piece[int(result.cls[i].item())]
+                """if result.conf[i].item() < 0.50:
+                    continue"""
                 if self.color == 1:
                     pos_y = int(result.xywh[i][0].item() // 80)
                     pos_x = int(7 - result.xywh[i][1].item() // 80)
                 else:
                     pos_y = int(7 - result.xywh[i][0].item() // 80)
                     pos_x = int(result.xywh[i][1].item() // 80)
-                result_map[pos_x][pos_y] = piece
+
+                if (result_map[pos_x][pos_y] == '') or (result_map[pos_x][pos_y] == 'K' and piece == 'k'):
+                    result_map[pos_x][pos_y] = piece
+                else:
+                    continue
 
                 label = f"{piece}: {result.conf[i].item():.2f}"
 
@@ -191,13 +200,14 @@ class Eye:
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
             cv2.imshow('Detected Pieces', transformed_frame)
-            cv2.waitKey(0)
+            cv2.waitKey(5000)
             cv2.destroyAllWindows()
-            command = input('accept (Y/n)? ')
+            """command = input('accept (Y/n)? ')
             if command == 'Y' or command == '':
                 break
             else:
-                continue
+                continue"""
+            break
         return result_map
 
     def close(self):
@@ -215,7 +225,7 @@ if __name__ == '__main__':
     eye = Eye(1)
     while True:
         comm = input('continue? ')
-        if not(comm == '' or comm == 'Y'):
+        if not (comm == '' or comm == 'Y'):
             eye.close()
             break
         eye.look()

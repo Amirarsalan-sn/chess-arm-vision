@@ -1,6 +1,7 @@
 from arm.MG400.dobot_api import DobotApiDashboard, DobotApiMove, DobotApi
-import re
 import matplotlib.pyplot as plt
+import json
+import re
 
 memor = [
     [[219.367455, 90.64524, -101.370293], [217.368459, 64.153626, -100.919762], [219.160661, 34.708657, -100.980217],
@@ -49,7 +50,32 @@ class Arm:
         self.dashboard.DisableRobot()
         self.rotation = 1.09
         self.reset = [287.87, -11.85, 117.06, self.rotation]
-        self.origin, self.vector_i, self.vector_j = self.learn_map()
+        self.promotion_poses = {
+            'q': [None, None, None, self.rotation],
+            'b': [None, None, None, self.rotation],
+            'r': [None, None, None, self.rotation],
+            'n': [None, None, None, self.rotation]
+        }
+
+        cords = self.read_coordinates()
+        if cords is None:
+            self.origin, self.vector_i, self.vector_j = self.learn_map()
+
+            self.void_pos = self.learn_void_pos()
+            print('void position is set.')
+
+            self.learn_promotions(self.promotion_poses)
+
+            self.write_json()
+        else:
+            self.origin, self.vector_i, self.vector_j, self.void_pos, q, b, r, n = cords
+            self.promotion_poses['q'] = q
+            self.promotion_poses['b'] = b
+            self.promotion_poses['r'] = r
+            self.promotion_poses['n'] = n
+
+            self.show_learned_points(self.origin, self.vector_i, self.vector_j, self.origin[2])
+
         self.board_position_encoding = [
             [[None, None, None, self.rotation], [None, None, None, self.rotation], [None, None, None, self.rotation],
              [None, None, None, self.rotation], [None, None, None, self.rotation], [None, None, None, self.rotation],
@@ -80,21 +106,13 @@ class Arm:
             for j in range(8):
                 self.board_position_encoding[j][i][0] = self.origin[0] + i * self.vector_i[0] + j * self.vector_j[0]
                 self.board_position_encoding[j][i][1] = self.origin[1] + i * self.vector_i[1] + j * self.vector_j[1]
-                self.board_position_encoding[j][i][2] = self.origin[2]
+                if j == 0:
+                    self.board_position_encoding[j][i][2] = self.origin[2] - 2  # hand driven rule
+                else:
+                    self.board_position_encoding[j][i][2] = self.origin[2]
                 self.board_position_encoding[j][i][3] = self.rotation
 
         print('positions are all set.')
-
-        self.void_pos = self.learn_void_pos()
-        print('void position is set.')
-        self.promotion_poses = {
-            'q': [None, None, None, self.rotation],
-            'b': [None, None, None, self.rotation],
-            'r': [None, None, None, self.rotation],
-            'n': [None, None, None, self.rotation]
-        }
-
-        self.learn_promotions(self.promotion_poses)
 
         self.word_to_pos = {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}
 
@@ -128,6 +146,45 @@ class Arm:
         else:
             self.simple_move(action, capture, en_passant)
 
+    @staticmethod
+    def read_coordinates():
+        try:
+            with open('D:/chess_arm_vision/arm/conf.json', 'r') as f:
+                data = json.load(f)
+                if data.get('valid', False):
+                    origin = data.get('origin')
+                    vector_i = data.get('vector_i')
+                    vector_j = data.get('vector_j')
+                    void_pos = data.get('void_pos')
+                    q = data.get('q')
+                    b = data.get('b')
+                    r = data.get('r')
+                    n = data.get('n')
+
+                    if origin is None or vector_i is None or vector_j is None or void_pos is None or q is None or b \
+                            is None or r is None or n is None:
+                        return None
+
+                    return origin, vector_i, vector_j, void_pos, q, b, r, n
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+
+    def write_json(self):
+        data = {
+            'valid': True,
+            'origin': self.origin,
+            'vector_i': self.vector_i,
+            'vector_j': self.vector_j,
+            'void_pos': self.void_pos,
+            'q': self.promotion_poses['q'],
+            'b': self.promotion_poses['b'],
+            'r': self.promotion_poses['r'],
+            'n': self.promotion_poses['n']
+        }
+
+        with open('D:/chess_arm_vision/arm/conf.json', 'w') as f:
+            json.dump(data, f)
+
     def simple_move(self, action: str, capture: bool, en_passant: bool):
         end_pos, start_pos = self.extract_pos(action)
         self.reset_pos()
@@ -139,6 +196,27 @@ class Arm:
         self.act(self.board_position_encoding[start_pos[0]][start_pos[1]],
                  self.board_position_encoding[end_pos[0]][end_pos[1]])
         self.reset_pos()
+
+    def show_learned_points(self, origin, vector_i, vector_j, z):
+        self.dashboard.EnableRobot()  # this can be changed
+        self.reset_pos()
+        self.move.MovL(*origin)
+        self.dashboard.DO(1, 1)
+        self.dashboard.wait(1000)
+        self.dashboard.DO(1, 0)
+        self.check_terminate()
+        br_2 = [7 * vector_i[0] + origin[0], 7 * vector_i[1] + origin[1], z, self.rotation]
+        self.move.MovL(*br_2)
+        self.check_terminate()
+        tl_2 = [7 * vector_j[0] + origin[0], 7 * vector_j[1] + origin[1], z, self.rotation]
+        self.move.MovL(*tl_2)
+        self.check_terminate()
+        tr_2 = [7 * vector_i[0] + 7 * vector_j[0] + origin[0], 7 * vector_i[1] + 7 * vector_j[1] + origin[1], z,
+                self.rotation]
+        self.move.MovL(*tr_2)
+        self.check_terminate()
+        # self.reset_pos()
+        self.dashboard.DisableRobot()
 
     def promotion(self, action: str, capture: bool):
         end_pos, start_pos = self.extract_pos(action)
@@ -198,6 +276,11 @@ class Arm:
         start_pos_delta = [start_pos[0], start_pos[1], start_pos[2] + delta, start_pos[3]]
         end_pos_delta = [end_pos[0], end_pos[1], end_pos[2] + delta, end_pos[3]]
 
+        """if (start_pos[0] == self.board_position_encoding[0][3][0] and
+                start_pos[1] == self.board_position_encoding[0][3][1]):
+            print('encountered exception points.')
+            start_pos[2] -= 1"""
+
         self.dashboard.SetPayload(0.5)
         self.move.MovL(*start_pos_delta)
         self.move.MovL(*start_pos)
@@ -205,7 +288,7 @@ class Arm:
         self.dashboard.wait(self.time_to_wait)
         self.dashboard.DO(1, 1)
         # input('proceed ? :')
-        self.dashboard.wait(self.time_to_wait)
+        self.dashboard.wait(self.time_to_wait + 300)
         # input('proceed ? :')
         self.move.MovL(*start_pos_delta)
         self.move.MovL(*end_pos_delta)
@@ -293,25 +376,7 @@ class Arm:
         origin = [x0, y0, z, self.rotation]
 
         # now it's time to show the learned positions
-        self.dashboard.EnableRobot()  # this can be changed
-        self.reset_pos()
-        self.move.MovL(*origin)
-        self.dashboard.DO(1, 1)
-        self.dashboard.wait(1000)
-        self.dashboard.DO(1, 0)
-        self.check_terminate()
-        br_2 = [7 * vector_i[0] + origin[0], 7 * vector_i[1] + origin[1], z, self.rotation]
-        self.move.MovL(*br_2)
-        self.check_terminate()
-        tl_2 = [7 * vector_j[0] + origin[0], 7 * vector_j[1] + origin[1], z, self.rotation]
-        self.move.MovL(*tl_2)
-        self.check_terminate()
-        tr_2 = [7 * vector_i[0] + 7 * vector_j[0] + origin[0], 7 * vector_i[1] + 7 * vector_j[1] + origin[1], z,
-                self.rotation]
-        self.move.MovL(*tr_2)
-        self.check_terminate()
-        #self.reset_pos()
-        self.dashboard.DisableRobot()
+        self.show_learned_points(origin, vector_i, vector_j, z)
 
         return origin, vector_i, vector_j
 
@@ -359,6 +424,7 @@ class Arm:
         self.dashboard.close()
         self.move.close()
         self.feed.close()
+        print('DOBOT released.')
 
 
 if __name__ == '__main__':

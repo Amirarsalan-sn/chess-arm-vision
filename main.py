@@ -12,14 +12,23 @@ DEFAULT_VOLUME = 0.85
 
 
 class Play:
-    def __init__(self, color=1):
+    def __init__(self, color=1, mode=0):
         self.color = color  # -1 for black
+        self.mode = mode  # 1 for custom starting point.
         assert self.color == 1 or self.color == -1, "player color can either be 1 or -1"
 
         self.eye = Eye(color)
         self.brain = StockFishOpponent("D:/stockfish/stockfish-windows-x86-64.exe")
         self.arm = Arm(color)
-        #self.set_volume()
+
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(
+            IAudioEndpointVolume._iid_,
+            CLSCTX_ALL,
+            None)
+        self.volume_control = cast(interface, POINTER(IAudioEndpointVolume))
+
+        self.set_volume()
         self.speaker = pyttsx3.init()
         self.speaker.setProperty('rate', 150)  # Speed of speech
         self.speaker.setProperty('volume', 1)
@@ -45,84 +54,129 @@ class Play:
         self.word_to_pos = {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}
 
     def set_volume(self):
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(
-            IAudioEndpointVolume._iid_,
-            CLSCTX_ALL,
-            None)
-        volume_control = cast(interface, POINTER(IAudioEndpointVolume))
-        volume_control.SetMasterVolumeLevelScalar(DEFAULT_VOLUME, None)
+        self.volume_control.SetMasterVolumeLevelScalar(DEFAULT_VOLUME, None)
         print(f"Volume set to: {DEFAULT_VOLUME * 100:.0f}%")
 
     def get_volume(self):
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(
-            IAudioEndpointVolume._iid_,
-            CLSCTX_ALL,
-            None)
-        volume = cast(interface, POINTER(IAudioEndpointVolume))
-        return volume.GetMasterVolumeLevelScalar()
+        return self.volume_control.GetMasterVolumeLevelScalar()
 
     def receive_order(self):
-        input('proceed?')
-        return
-        """while True:
+        """input('proceed?')
+        return"""
+        print('waiting for order')
+        while True:
             time.sleep(3)  # Sleep for 3 second before checking the volume again
             current_volume = self.get_volume()
 
             if math.fabs(current_volume - DEFAULT_VOLUME) * 100 >= 1:
                 print(f"Volume changed to: {current_volume * 100:.0f}%")
                 self.set_volume()
-                break"""
+                break
 
     def main_flow(self):
-        if self.color == 1:
-            self.receive_order()
-            player_action, _ = self.brain.step('white begins')
-            self.apply_player_action(player_action)
-            self.arm.move_piece(player_action, False, False, False)
+        try:
+            if self.mode == 1:
+                try:
+                    new_board = self.eye.look()
+                    self.board = new_board
+                    active_color = 'w'
+                    fen = self.board_to_fen(new_board, active_color=active_color, castling='KQ', en_passant='f6',
+                                            half_move=0, full_move=10)
+                    self.brain.set_fen(fen)
+                    if (self.color == -1 and active_color == 'b') or (self.color == 1 and active_color == 'w'):
+                        player_action = self.brain.get_best_action()
+                        capture = self.is_capture(player_action)
+                        castling, en_passant, check, outcome = self.apply_player_action(player_action)
+                        self.arm.move_piece(player_action, capture, castling, en_passant)
 
+                        if outcome is None:  # the game finished.
+                            txt = f"{'White won' if outcome == '1-0' else 'Black won' if outcome == '0-1' else 'Draw'}"
+                            game_result = f"Game finished with outcome:{txt}"
+                            print(game_result)
+                            self.speaker.say(game_result)
+                            self.speaker.runAndWait()
+                            self.end()
+                            exit(0)
 
-        while True:
-            self.receive_order()
-            try:
-                new_board = self.eye.look()
-            except Exception as e:
-                print(f'Exception at eye: {e}\n')
-                flag = self.terminate_check()
-                if flag:
+                        if check:
+                            speach = "Opponent checked!"
+                            print(speach)
+                            self.speaker.say(speach)
+                            self.speaker.runAndWait()
+
+                except Exception as e:
+                    print(f'Exception at eye: {e}\n')
+                    flag = self.terminate_check()
+                    if flag:
+                        self.end()
+                        exit(0)
+
+            if self.color == 1 and self.mode == 0:
+                self.receive_order()
+                player_action = self.brain.get_best_action()
+                self.apply_player_action(player_action)
+                self.arm.move_piece(player_action, False, False, False)
+
+            while True:
+                self.receive_order()
+                try:
+                    new_board = self.eye.look()
+                except Exception as e:
+                    print(f'Exception at eye: {e}\n')
+                    flag = self.terminate_check()
+                    if flag:
+                        break
+                    else:
+                        continue
+                try:
+                    opponent_action = self.differentiate(new_board)
+                except Exception as e:
+                    print(
+                        f'An exception occurred, either the opponent has made a mistake or it is due to in accuracy of '
+                        f'system. Please rearrange the pieces and start again:\n{e}')
+                    flag = self.terminate_check()
+                    if flag:
+                        break
+                    else:
+                        continue
+                _, _, check, outcome = self.apply_player_action(opponent_action, opponent=True)
+
+                if outcome is not None:  # the game finished.
+                    game_result = f"Game finished with outcome: " + \
+                                  f"{'White won' if outcome == '1-0' else 'Black won' if '0-1' == -1 else 'Draw'}"
+                    print(game_result)
+                    self.speaker.say(game_result)
+                    self.speaker.runAndWait()
                     break
-                continue
-            try:
-                opponent_action = self.differentiate(new_board)
-            except Exception as e:
-                print(f'An exception occurred, either the opponent has made a mistake or it is due to in accuracy of '
-                      f'system. Please rearrange the pieces and start again:\n{e}')
-                flag = self.terminate_check()
-                if flag:
-                    break
-                continue
-            player_action, finish_stat = self.brain.step(opponent_action)
-            if player_action is None:  # the game finished.
-                game_result = f"Game finished with outcome: " + \
-                              f"{'White won' if finish_stat == 1 else 'Black won' if finish_stat == -1 else 'Draw'}"
-                print(game_result)
-                self.speaker.say(game_result)
-                self.speaker.runAndWait()
-                break
-            capture = self.is_capture(player_action)
-            castling, en_passant = self.apply_player_action(player_action)
-            self.arm.move_piece(player_action, capture, castling, en_passant)
-            if finish_stat != 2:  # the game finished.
-                game_result = f"Game finished with outcome: " + \
-                              f"{'White won' if finish_stat == 1 else 'Black won' if finish_stat == -1 else 'Draw'}"
-                print(game_result)
-                self.speaker.say(game_result)
-                self.speaker.runAndWait()
-                time.sleep(3)
-                break
 
-        self.end()
+                if check:
+                    speach = "Opponent checked!"
+                    print(speach)
+                    self.speaker.say(speach)
+                    self.speaker.runAndWait()
+
+                player_action = self.brain.get_best_action()
+
+                capture = self.is_capture(player_action)
+                castling, en_passant, check, outcome = self.apply_player_action(player_action)
+                self.arm.move_piece(player_action, capture, castling, en_passant)
+
+                if outcome is not None:  # the game finished.
+                    game_result = f"Game finished with outcome: " + \
+                                  f"{'White won' if outcome == '1-0' else 'Black won' if outcome == '0-1' else 'Draw'}"
+                    print(game_result)
+                    self.speaker.say(game_result)
+                    self.speaker.runAndWait()
+                    time.sleep(15)
+                    break
+                elif check:
+                    speach = "Check!"
+                    print(speach)
+                    self.speaker.say(speach)
+                    self.speaker.runAndWait()
+
+        finally:
+            self.end()
 
     def differentiate(self, new_board) -> str:
         result = None
@@ -142,8 +196,8 @@ class Play:
                     moved_piece_after[new_board[i][j].lower()] = [i, j]
 
         if len(moved_piece_before) == len(moved_piece_after) == 2:  # castling might have happened.
-            if ('k' in moved_piece_before) and ('n' in moved_piece_before) and ('k' in moved_piece_after) and \
-                    ('n' in moved_piece_after):
+            if ('k' in moved_piece_before) and ('r' in moved_piece_before) and ('k' in moved_piece_after) and \
+                    ('r' in moved_piece_after):
                 if (self.color == 1 and moved_piece_before['k'][0] == moved_piece_after['k'][0] == 7) or (
                         self.color == -1 and moved_piece_before['k'][0] == moved_piece_after['k'][0] == 0):
                     result = self.map[moved_piece_before['k'][0]][moved_piece_before['k'][1]] \
@@ -151,8 +205,12 @@ class Play:
         elif len(moved_piece_before) == len(moved_piece_after) == 1:  # it is a simple move or a promotion.
             if moved_piece_before.keys() == moved_piece_after.keys():  # it is a simple move.
                 for key in moved_piece_before.keys():
-                    result = self.map[moved_piece_before[key][0]][moved_piece_before[key][1]] \
-                             + self.map[moved_piece_after[key][0]][moved_piece_after[key][1]]
+                    if key == 'p' and (moved_piece_before['p'][0] == moved_piece_after['p'][0]):  # en passant
+                        result = self.map[moved_piece_before[key][0]][moved_piece_before[key][1]] \
+                                 + self.map[moved_piece_before[key][0]][moved_piece_after[key][1]]
+                    else:
+                        result = self.map[moved_piece_before[key][0]][moved_piece_before[key][1]] \
+                                 + self.map[moved_piece_after[key][0]][moved_piece_after[key][1]]
             elif ('p' in moved_piece_before.keys()) and ('k' not in moved_piece_after.keys()):  # it is a promotion
                 for key in moved_piece_after.keys():
                     if (self.color == 1 and moved_piece_after[key][0] == 0) or (
@@ -165,25 +223,57 @@ class Play:
             for start_val in moved_piece_before.values():
                 for end_val in moved_piece_after.values():
                     action = self.map[start_val[0]][start_val[1]] + self.map[end_val[0]][end_val[1]]
+                    log = f'Exact prediction failed, probable action: {action}'
                     if self.brain.is_legal(action):
+                        log += ' . prediction is legal.'
                         legal_actions.append(action)
+                    else:
+                        log += ' .prediction is not legal.'
+
+                    print(log)
 
             if len(legal_actions) == 1:
                 result = legal_actions[0]
             else:
                 raise Exception(f'None of the cases above were satisfied, the action or the received perception is '
-                                f'illegal:\nbefore: {self.board}\nafter: {new_board}')
+                                f'illegal:\nbefore:\n{self.board_to_string(self.board)}\nafter:'
+                                f'\n{self.board_to_string(new_board)}')
 
         if not self.brain.is_legal(result):
-            raise Exception(f"An illegal action extracted, it is either due to the opponent's action or inaccuracy of "
-                            f"the system's vision:\nbefore: {self.board}\nafter: {new_board}")
+            raise Exception(f"An illegal action {result} extracted, it is either due to the opponent's action or "
+                            f"inaccuracy of the system's vision:\nbefore:\n{self.board_to_string(self.board)}\nafter:"
+                            f"\n{self.board_to_string(new_board)}")
 
-        self.apply_player_action(result, opponent=True)
+        #self.apply_player_action(result, opponent=True)
 
         print(f'predicted action: {result}')
         return result
 
     # TODO:remember to implement en_passant detection.
+
+    @staticmethod
+    def board_to_fen(board, active_color='w', castling='', en_passant='-', half_move=0, full_move=1):
+        # Convert the board to FEN notation
+        fen = []
+        for row in reversed(board):
+            empty_count = 0
+            for piece in row:
+                if piece == '':
+                    empty_count += 1
+                else:
+                    if empty_count > 0:
+                        fen.append(str(empty_count))
+                        empty_count = 0
+                    fen.append(piece)
+            if empty_count > 0:
+                fen.append(str(empty_count))
+            fen.append('/')  # End of the row
+        fen.pop()  # Remove the last '/'
+
+        # Construct the complete FEN string
+        fen_string = ''.join(fen) + f' {active_color} {castling} {en_passant} {half_move} {full_move}'
+        return fen_string
+
     def apply_player_action(self, player_action: str, opponent=False):
         action_start = player_action[0:2]
         action_end = player_action[2:4]
@@ -231,7 +321,11 @@ class Play:
         if en_passant:
             self.board[start_pose[0]][end_pose[1]] = ''
 
-        return castling, en_passant
+        self.brain.apply_action(player_action)
+        check = self.brain.is_check()
+        outcome = self.brain.outcome()
+
+        return castling, en_passant, check, outcome
 
     def is_capture(self, player_action) -> bool:
         action_end = player_action[2:4]
@@ -262,10 +356,21 @@ class Play:
                 return False
             print('invalid answer.')
 
+    def board_to_string(self, board):
+        result = ''
+
+        for i in range(8):
+            for j in range(8):
+                result += f'{board[i][j]} '
+            result += '\n'
+
+        return result
+
     def end(self):
+        self.speaker.stop()
         self.eye.close()
         self.arm.close_connection()
-        pass
+        print('resources de-allocated.')
 
 
 if __name__ == "__main__":
@@ -316,5 +421,5 @@ if __name__ == "__main__":
     move.close()
     feed.close()"""
 
-    player = Play(color=-1)
+    player = Play(color=1, mode=0)
     player.main_flow()
