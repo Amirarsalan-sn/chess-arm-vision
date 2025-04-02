@@ -1,3 +1,5 @@
+import time
+
 from ultralytics import YOLO
 import numpy as np
 import cv2
@@ -33,7 +35,35 @@ class Eye:
         self.rgb_lower_bound = np.array([20, 30, 118])
         self.rgb_upper_bound = np.array([70, 75, 210])
 
+        self.tl = None
+        self.tr = None
+        self.bl = None
+        self.br = None
+
+        self.corner_points = []
+
+        img = self.read_image()
+        self.extract_points_with_roll_back(img)
+        cv2.waitKey(2000)
+        cv2.destroyAllWindows()
+
     # TODO: Implement it.
+
+    def read_image(self):
+        try:
+            self.cap.read()
+            ret, img = self.cap.read()
+            if not ret:
+                print('could not read frame so trying to recapture the webcam.')
+                self.recapture()
+                self.cap.read()
+                ret, img = self.cap.read()
+                if not ret:
+                    raise Exception('could not read frame ret value is None')
+        except Exception as e:
+            raise Exception(f'Encountered an exception while capturing image from webcam: {e}\n')
+
+        return img
 
     def extract_points_with_yolo(self, image):
         image_resized = cv2.resize(image, (1280, 1280))
@@ -55,8 +85,17 @@ class Eye:
 
         cv2.imshow('Detected points', cv2.resize(image_resized, (640, 640)))
 
-        if len(coordinates) != 4:
+        if len(coordinates) != 4 and self.tl is None:
             raise Exception("the yolo model couldn't find the four red corners.")
+        elif len(coordinates) != 4:
+            print('using previously saved points')
+            tl = self.tl
+            tr = self.tr
+            bl = self.bl
+            br = self.br
+            print(f'tl:{tl}, bl:{bl}, tr:{tr}, br:{br}')
+
+            return tl, bl, tr, br
 
         x_list.sort()
         y_list.sort()
@@ -81,8 +120,20 @@ class Eye:
 
         print(f'tl:{tl}, bl:{bl}, tr:{tr}, br:{br}')
 
-        if tl is None or bl is None or tr is None or br is None:
+        if (tl is None or bl is None or tr is None or br is None) and (self.tl is None):
             raise Exception('fatal, could not specify tl, bl, tr, br.')
+        elif tl is None or bl is None or tr is None or br is None:
+            print('using previously saved points')
+            tl = self.tl
+            tr = self.tr
+            bl = self.bl
+            br = self.br
+        else:
+            print('red corner positions saved.')
+            self.tl = tl
+            self.tr = tr
+            self.bl = bl
+            self.br = br
 
         return tl, bl, tr, br
 
@@ -137,6 +188,73 @@ class Eye:
 
         return tl, bl, tr, br
 
+    def capture_points(self, event, x, y, flags, param):
+        """Capture mouse clicks for point selection."""
+        if event == cv2.EVENT_LBUTTONDOWN and len(self.corner_points) < 4:
+            self.corner_points.append([x, y])
+
+    def insert_manually(self):
+        self.corner_points.clear()
+        point_names = ['Top Left', 'Bottom Left', 'Top Right', 'Bottom Right']
+        cv2.namedWindow("Webcam Feed")
+        cv2.setMouseCallback("Webcam Feed", self.capture_points)
+
+        while len(self.corner_points) < 4:
+            ret, frame = self.cap.read()
+            if not ret:
+                break
+
+            # Resize frame for display
+            display_frame = cv2.resize(frame, (600, 400))
+
+            # Show instructions
+            if len(self.corner_points) < 4:
+                cv2.putText(display_frame, f"Click on {point_names[len(self.corner_points)]}", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+            # Draw points if available
+            for pt in self.corner_points:
+                cv2.circle(display_frame, pt, 5, (0, 255, 0), -1)
+
+            cv2.imshow("Webcam Feed", display_frame)
+
+            cv2.waitKey(20)
+
+        original_points = [[int(pt[0] * (1920 / 600)), int(pt[1] * (1080 / 400))] for pt in self.corner_points]
+
+        self.tl = original_points[0]
+        self.bl = original_points[1]
+        self.tr = original_points[2]
+        self.br = original_points[3]
+        cv2.destroyAllWindows()
+
+        print(f'manually set points: tl: {self.tl}, bl: {self.bl}, tr: {self.tr}, br: {self.br}')
+
+        return self.tl, self.bl, self.tr, self.br
+
+    def extract_points_with_roll_back(self, img):
+        flag = False
+
+        tl = bl = tr = br = None
+
+        for i in range(10):
+            try:
+                tl, bl, tr, br = self.extract_points_with_yolo(img)
+                flag = True
+                break
+            except Exception as e:
+                print(f'Attempt {i} failed for finding red corners.')
+                continue
+
+        if not flag:
+            command = input('Could not find 4 points, do you want to insert them manually (Y/n) ??')
+            if command == '' or command == 'Y' or command == 'y':
+                tl, bl, tr, br = self.insert_manually()
+            else:
+                raise Exception("the yolo model couldn't find the four red corners.")
+
+        return tl, bl, tr, br
+
     def look(self):
         """
         takes a screenshot from the board and extracts its four corners and applies perspective transformation on it
@@ -148,20 +266,9 @@ class Eye:
             result_map = [['' for j in range(8)] for i in range(8)]
 
             # Capture a single frame
-            try:
-                self.cap.read()
-                ret, img = self.cap.read()
-                if not ret:
-                    print('could not read frame so trying to recapture the webcam.')
-                    self.recapture()
-            except Exception as e:
-                print(f'Encountered an exception while capturing image from webcam: {e}\n '
-                      f'trying to capture the webcam again.')
-                self.recapture()
-                print('webcam recaptured')
-                continue
+            img = self.read_image()
 
-            tl, bl, tr, br = self.extract_points_with_yolo(img)
+            tl, bl, tr, br = self.extract_points_with_roll_back(img)
 
             pts1 = np.float32([tr, tl, br, bl])
 

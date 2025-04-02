@@ -49,6 +49,9 @@ class Opponent:
     def outcome(self):
         pass
 
+    def set_skill(self, level):
+        pass
+
     def close(self):
         """
         de-allocate the allocated resources
@@ -135,6 +138,9 @@ class StockFishOpponent(Opponent):
         if outcome is not None:
             return self.board.outcome().result()
         return self.board.outcome()
+
+    def set_skill(self, level):
+        self.engine.update_engine_parameters({"Skill Level": level})
 
     def close(self):
         del self.engine

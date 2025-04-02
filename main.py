@@ -12,13 +12,15 @@ DEFAULT_VOLUME = 0.85
 
 
 class Play:
-    def __init__(self, color=1, mode=0):
+    def __init__(self, color=1, mode=0, skill_level=20):
         self.color = color  # -1 for black
         self.mode = mode  # 1 for custom starting point.
         assert self.color == 1 or self.color == -1, "player color can either be 1 or -1"
 
         self.eye = Eye(color)
         self.brain = StockFishOpponent("D:/stockfish/stockfish-windows-x86-64.exe")
+        if skill_level < 20:
+            self.brain.set_skill(skill_level)
         self.arm = Arm(color)
 
         devices = AudioUtilities.GetSpeakers()
@@ -76,40 +78,45 @@ class Play:
     def main_flow(self):
         try:
             if self.mode == 1:
-                try:
-                    new_board = self.eye.look()
-                    self.board = new_board
-                    active_color = 'w'
-                    fen = self.board_to_fen(new_board, active_color=active_color, castling='KQ', en_passant='f6',
-                                            half_move=0, full_move=10)
-                    self.brain.set_fen(fen)
-                    if (self.color == -1 and active_color == 'b') or (self.color == 1 and active_color == 'w'):
-                        player_action = self.brain.get_best_action()
-                        capture = self.is_capture(player_action)
-                        castling, en_passant, check, outcome = self.apply_player_action(player_action)
-                        self.arm.move_piece(player_action, capture, castling, en_passant)
+                while True:
+                    try:
+                        new_board = self.eye.look()
+                        self.board = new_board
+                        active_color = 'b'
+                        fen = self.board_to_fen(new_board, active_color=active_color, castling='-', en_passant='-',
+                                                half_move=0, full_move=0)
+                        self.brain.set_fen(fen)
+                        if (self.color == -1 and active_color == 'b') or (self.color == 1 and active_color == 'w'):
+                            player_action = self.brain.get_best_action()
+                            capture = self.is_capture(player_action)
+                            castling, en_passant, check, outcome = self.apply_player_action(player_action)
+                            self.arm.move_piece(player_action, capture, castling, en_passant)
 
-                        if outcome is None:  # the game finished.
-                            txt = f"{'White won' if outcome == '1-0' else 'Black won' if outcome == '0-1' else 'Draw'}"
-                            game_result = f"Game finished with outcome:{txt}"
-                            print(game_result)
-                            self.speaker.say(game_result)
-                            self.speaker.runAndWait()
+                            if outcome is not None:  # the game finished.
+                                txt = f"{'White won' if outcome == '1-0' else 'Black won' if outcome == '0-1' else 'Draw'}"
+                                game_result = f"Game finished with outcome:{txt}"
+                                print(game_result)
+                                self.speaker.say(game_result)
+                                self.speaker.runAndWait()
+                                self.end()
+                                exit(0)
+
+                            if check:
+                                speach = "Check!"
+                                print(speach)
+                                self.speaker.say(speach)
+                                self.speaker.runAndWait()
+
+                    except Exception as e:
+                        print(f'Exception at eye: {e}\n')
+                        flag = self.terminate_check()
+                        if flag:
                             self.end()
                             exit(0)
+                        else:
+                            continue
 
-                        if check:
-                            speach = "Opponent checked!"
-                            print(speach)
-                            self.speaker.say(speach)
-                            self.speaker.runAndWait()
-
-                except Exception as e:
-                    print(f'Exception at eye: {e}\n')
-                    flag = self.terminate_check()
-                    if flag:
-                        self.end()
-                        exit(0)
+                    break
 
             if self.color == 1 and self.mode == 0:
                 self.receive_order()
@@ -143,8 +150,9 @@ class Play:
 
                 if outcome is not None:  # the game finished.
                     game_result = f"Game finished with outcome: " + \
-                                  f"{'White won' if outcome == '1-0' else 'Black won' if '0-1' == -1 else 'Draw'}"
+                                  f"{'White won' if outcome == '1-0' else 'Black won' if outcome == '0-1' else 'Draw'}"
                     print(game_result)
+                    print(outcome)
                     self.speaker.say(game_result)
                     self.speaker.runAndWait()
                     break
@@ -165,6 +173,7 @@ class Play:
                     game_result = f"Game finished with outcome: " + \
                                   f"{'White won' if outcome == '1-0' else 'Black won' if outcome == '0-1' else 'Draw'}"
                     print(game_result)
+                    print(outcome)
                     self.speaker.say(game_result)
                     self.speaker.runAndWait()
                     time.sleep(15)
@@ -244,7 +253,7 @@ class Play:
                             f"inaccuracy of the system's vision:\nbefore:\n{self.board_to_string(self.board)}\nafter:"
                             f"\n{self.board_to_string(new_board)}")
 
-        #self.apply_player_action(result, opponent=True)
+        # self.apply_player_action(result, opponent=True)
 
         print(f'predicted action: {result}')
         return result
@@ -421,5 +430,5 @@ if __name__ == "__main__":
     move.close()
     feed.close()"""
 
-    player = Play(color=1, mode=0)
+    player = Play(color=-1, mode=0, skill_level=15)
     player.main_flow()
