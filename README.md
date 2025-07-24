@@ -1,2 +1,2 @@
 # Dchess, a robotic chess player
-Hello everyone. This is Dchess ! A robotic Chess master, my bachelor's thesis. The readme is on the way so stay tuned :).
+This repository is the source code for the article: RoBoard: a Platform to Teach Robots How to Play Board Games.
